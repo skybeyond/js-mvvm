@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<title></title>
+		
+		
+		<script type="text/javascript">
+			function Dep(){
+				this.depArray=[];
+				this.addDep=function(watcher){
+					this.depArray.push(watcher);
+				}
+				this.notify=function(){
+					this.depArray.forEach(function(dep){
+						dep.update();  //通知
+					})
+					
+				}
+			}
+			function ObServer(data){
+				var obServer = this;
+ 
+				this.defaultReactive=function(data, key, value){
+					
+					var deps = new Dep();
+					//挟持的对象
+					Object.defineProperty(data,key,{
+						get:function(){
+						    var dep =  Dep.target;//获取订阅者
+                            dep && deps.addDep(dep); //保存订阅者
+                            console.log(deps.depArray)
+							return value;
+						},
+						set:function(newValue){
+							value=newValue;
+							console.log(deps.depArray)
+							deps.notify();
+						}
+						
+					})	
+				}
+				if(data &&  typeof (data)=="object"){
+					 //遍历对象的key
+					var keys = Object.keys(data);
+					keys.forEach(function(key){
+						obServer.defaultReactive(data,key,data[key]);
+						
+					})	
+				}
+			}
+			
+			
+		
+		</script>
+		
+		
+		<script type="text/javascript">
+		
+ 
+			function Watcher(vm, expr, fn){
+				
+				this.vm = vm;
+				this.expr = expr;
+				this.fn = fn;
+				this.get=function(){
+                    Dep.target =this;
+                    console.log(this.expr,22222222)
+					var value = this.vm.$data[this.expr];
+					Dep.target =null;
+					return value;
+				}
+				this.value=this.get();
+				this.update=function(){
+					if(this.value !== this.vm.$data[this.expr]){
+						this.fn(this.vm.$data[this.expr]);
+					}
+ 
+				}
+			}
+		
+		
+		</script>
+		<script type="text/javascript">
+		
+			function TemplateCompiler(el, vm){
+				this.thsi = this;
+				//缓存
+				this.el = el;
+				this.vm = vm;
+				//解析视图
+	
+				this.nodeFragment=function(template){
+					//开辟一个碎片内存
+					var fragment = document.createDocumentFragment();
+					//定义一个接收变量
+					var node = undefined;
+					while((node=template.firstChild) != undefined){
+						fragment.appendChild(node);
+					}
+					return fragment;
+				}
+				
+				this.toArray=function(array){//给集合转为数组
+					return [].slice.call(array);
+					
+				}
+				
+				this.isElementNode=function(node){ //判断元素标签
+					return node.nodeType === 1;
+				}
+				
+				this.isTextNode=function(node){ //判断文本
+					return node.nodeType === 3;
+				}
+				this.isDirective=function(attrName){//z-model
+					return attrName.indexOf("zou-") >= 0;
+					
+				}
+				
+				this.attributeSub=function(attrName){ //截取属性   z-model ------ model
+					return attrName.substring(2+2,attrName.length);
+				}
+				
+				this.attribute = {
+					text:function(node,vm,expr){
+                        console.log(expr,"1111111111111111111")
+						var updateText = this.update.updateText;
+						updateText && updateText(node,vm.$data[expr]);//节点赋值
+						//添加订阅者
+						new Watcher(vm,expr,function(newValues){
+							updateText && updateText(node,newValues);//节点赋值
+							
+						});
+					},
+					model:function(node,vm,expr){
+                        console.log(node,"model")
+						var updateModel = this.update.updateModel;
+						updateModel && updateModel(node,vm.$data[expr]);//节点赋值
+						
+						
+						//添加订阅者
+						new Watcher(vm,expr,function(newValue){
+							
+							updateModel && updateModel(node,newValue);//节点赋值
+						});						
+						
+		
+	//					node.addEventListener('change',function(e){ //监听事件  移开鼠标菜触发
+	//						var newValue = event.target.value;
+	//						vm.$data[expr]= newValue;
+	//					})	
+ 
+ 
+						node.addEventListener('input',function(e){ //监听事件  每次输入触发评率比较高
+							var newValue = event.target.value;
+							vm.$data[expr]= newValue;
+						})
+						
+						
+					},
+					regExp:function(node,vm,expr){
+						var updateText = this.update.updateText;
+						updateText && updateText(node,vm.$data[expr]);//节点赋值
+						//添加订阅者
+						new Watcher(vm,expr,function(newValue){
+							updateText && updateText(node,newValue);//节点赋值
+							
+						});
+					},
+					
+					update:{
+						updateText:function(node, value){
+							node.textContent = value;
+						},
+						updateModel:function(node, value){
+							node.value=value;
+						}	
+					}
+				}
+	
+				this.compilerElement=function(node){//解析元素节点
+					var compiler = this;
+					var attrs = node.attributes;
+					this.toArray(attrs).forEach(function(attr){
+						var attrName = attr.name;
+						if(compiler.isDirective(attrName)){//是否需要解析
+							var name = compiler.attributeSub(attrName);
+							var expr = attr.value;
+							compiler.attribute[name](node,compiler.vm, expr);
+						}
+						
+					});
+				}
+				
+				this.compilerText=function(text){
+					var compiler = this;
+					var expr = text.textContent;
+					var exp = new RegExp("\{\{(.+)\}\}");
+					if(exp.test(expr)){
+					  compiler.attribute.regExp(text,compiler.vm,expr);
+					}	
+				}
+				
+				
+				
+				//解析视图
+				this.compiler=function(fragment){
+					
+					var compiler = this;//缓存this
+		            //获取子节点
+					var child = fragment.childNodes;
+					//遍历
+					this.toArray(child).forEach(function(node){
+						//判断解析
+						if(compiler.isElementNode(node)){ //元素节点
+							compiler.compilerElement(node);
+							
+							//解析标签里面的表达式如：{{}}
+							var childTexts = node.childNodes;
+							compiler.toArray(childTexts).forEach(function(nodeText){
+							    if(compiler.isTextNode(nodeText)){//文本
+							    	compiler.compilerText(nodeText);
+							    }	
+							});
+						}else{//文本节点  解析表达式如：{{}}
+							compiler.compilerText(node);
+						}
+					})
+					
+				}			
+				
+				//获取视图
+				
+				this.el =  document.getElementById(this.el);
+				//给视图存放到碎片内存
+				var fragment = this.nodeFragment(this.el);
+				//解析视图
+				this.compiler(fragment);
+				//给解析后视图放到视图盒子里面
+				this.el.appendChild(fragment);
+			}
+		
+		</script>		
+	<script type="text/javascript">
+ 
+		function MVVM(object){
+			this.$vm = this;//缓存视图    + 模型   
+			this.$el = object.el;//缓存视图
+			this.$data = object.data;//缓存模型
+			//挟持数据
+			new ObServer(this.$data);
+			//模板解析器
+			var templateCompiler = new TemplateCompiler(this.$el,this.$vm);
+		}
+	</script>
+	</head>
+	<body>
+		<table border="1px">
+			<tr>
+				<td>
+					<div id="container">	
+						<div style="border: 1px solid red;">{{id}}</div>
+						<div  style="border: 1px solid red;">{{name}}</div>
+						<div  style="border: 1px solid red;">{{age}}</div>
+						<div  style="border: 1px solid red;">{{sex}}</div>
+						id:<input type="text" zou-model="id" value="" /><br />
+						name:<input type="text" zou-model="name" value="" /><br />
+						age:<input type="text" zou-model="age" value="" /><br />
+						sex:<input type="text" zou-model="sex" value="" /><br />
+					</div>					
+				</td>	
+			</tr>
+		</table>
+ 
+		
+		
+	</body>
+ 
+ 
+	    <script type="text/javascript">
+	    	var mvvm;
+	    	window.onload=function(){
+		    	mvvm = new MVVM({
+		    		el:'container',
+		    		data:{
+		    			id:'10011',
+		    			name:'张国荣',
+		    			age:'26',
+		    			sex:'男'
+		    		}
+		    	});
+	    	}
+    	</script>
+	
+</html>
